@@ -91,10 +91,21 @@ def r_patterns():
     if not dd or not _has_table(dd, "xf_pattern"): return []
     o = _rows(dd, "SELECT tag, family, shape, assertion_fn FROM xf_pattern ORDER BY family, tag"); dd.close(); return o
 
+def r_collections():
+    dd = _ro(DOMAIN_DB)
+    if not dd or not _has_table(dd, "xf_collection"): return []
+    o = _rows(dd, "SELECT collection_id, era, app, category, version, scoring_path, status, updated FROM xf_collection ORDER BY collection_id"); dd.close(); return o
+
+def r_runs():
+    dd = _ro(DOMAIN_DB)
+    if not dd or not _has_table(dd, "xf_collection_run"): return []
+    o = _rows(dd, "SELECT collection_id, ran_at, files, tasks, functions, drift_count FROM xf_collection_run ORDER BY run_id DESC LIMIT 100"); dd.close(); return o
+
 ROUTES = {"/api/health": lambda qs: r_health(), "/api/facets": lambda qs: r_facets(),
           "/api/ship-class": lambda qs: r_ship_class(), "/api/functions": lambda qs: r_functions(),
           "/api/drift": lambda qs: r_drift(), "/api/files": lambda qs: r_files(),
           "/api/tasks": lambda qs: r_tasks(), "/api/patterns": lambda qs: r_patterns(),
+          "/api/collections": lambda qs: r_collections(), "/api/runs": lambda qs: r_runs(),
           "/api/regenerate": r_regenerate}
 
 DASH = """<!doctype html><html><head><meta charset=utf-8><title>GemDesk</title>
@@ -127,7 +138,9 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path); qs = parse_qs(u.query)
         if u.path in ("/", "/index.html"):
-            body = DASH.encode(); ctype = "text/html; charset=utf-8"
+            uihtml = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gemdesk-ui.html")
+            body = open(uihtml, "rb").read() if os.path.exists(uihtml) else DASH.encode()
+            ctype = "text/html; charset=utf-8"
         elif u.path in ROUTES:
             try: body = json.dumps(ROUTES[u.path](qs), ensure_ascii=False).encode()
             except Exception as e: body = json.dumps({"error": repr(e)}).encode()
