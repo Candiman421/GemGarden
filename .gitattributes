@@ -1,0 +1,42 @@
+# GemGarden .gitattributes
+# UTF-8 / LF is the repo standard (mirrors PiQuixRoot ENC v1 / ADR-ROOT-015).
+# Fresh repo: `git add --renormalize .` is SAFE here -- all files are already LF on disk.
+
+* text=auto eol=lf
+
+# Web / source -- LF
+*.html text eol=lf
+*.css  text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.svg  text eol=lf
+*.xml  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# PowerShell -- LF
+*.ps1  text eol=lf
+*.psm1 text eol=lf
+*.psd1 text eol=lf
+
+# Python / config -- LF
+*.py   text eol=lf
+*.toml text eol=lf
+*.ini  text eol=lf
+
+# Windows batch -- CRLF (cmd.exe requires it)
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Binary -- no conversion
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.db   binary
