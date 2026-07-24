@@ -81,9 +81,20 @@ def r_regenerate(qs):
     dd.close()
     return {"file_id": fid, "text": "".join(r["raw_text"] for r in rows)}
 
+def r_tasks():
+    dd = _ro(DOMAIN_DB)
+    if not dd or not _has_table(dd, "xf_task"): return []
+    o = _rows(dd, "SELECT program, task, sheet, password_policy, pattern_tag FROM xf_task ORDER BY program, task"); dd.close(); return o
+
+def r_patterns():
+    dd = _ro(DOMAIN_DB)
+    if not dd or not _has_table(dd, "xf_pattern"): return []
+    o = _rows(dd, "SELECT tag, family, shape, assertion_fn FROM xf_pattern ORDER BY family, tag"); dd.close(); return o
+
 ROUTES = {"/api/health": lambda qs: r_health(), "/api/facets": lambda qs: r_facets(),
           "/api/ship-class": lambda qs: r_ship_class(), "/api/functions": lambda qs: r_functions(),
           "/api/drift": lambda qs: r_drift(), "/api/files": lambda qs: r_files(),
+          "/api/tasks": lambda qs: r_tasks(), "/api/patterns": lambda qs: r_patterns(),
           "/api/regenerate": r_regenerate}
 
 DASH = """<!doctype html><html><head><meta charset=utf-8><title>GemDesk</title>
@@ -96,6 +107,8 @@ h1{color:#8ab4f8;margin:0 0 4px}.sub{color:#7b8394;margin-bottom:20px}
 <div class=card id=health>loading health...</div>
 <div class=card><b>Facets</b> <pre id=facets></pre></div>
 <div class=card><b>Functions + drift</b> <span id=drift></span><pre id=functions></pre></div>
+<div class=card><b>Tasks</b> <pre id=tasks></pre></div>
+<div class=card><b>Scoring patterns</b> <pre id=patterns></pre></div>
 <div class=card><b>Files (byte-faithful)</b> <pre id=files></pre></div>
 <script>
 const g=(u)=>fetch(u).then(r=>r.json());
@@ -105,6 +118,8 @@ g('/api/facets').then(f=>document.getElementById('facets').textContent=f.map(x=>
 g('/api/functions').then(f=>document.getElementById('functions').textContent=f.map(x=>`${x.name} [${x.source_lib}] ${x.raw_hash}`).join('\\n')||'(none)');
 g('/api/drift').then(d=>document.getElementById('drift').innerHTML=(d.content_drift.length?`<span class=warn>content drift: ${d.content_drift.join(', ')}</span>`:'<span class=ok>no drift</span>'));
 g('/api/files').then(f=>document.getElementById('files').textContent=f.map(x=>`${x.file_id}  ${x.bytes}B  ${x.sha256.slice(0,12)}`).join('\\n')||'(none)');
+g('/api/tasks').then(t=>document.getElementById('tasks').textContent=t.map(x=>`${x.program} ${x.task}  ->  ${x.sheet||''}  [${x.pattern_tag||''}]`).join('\\n')||'(none)');
+g('/api/patterns').then(p=>document.getElementById('patterns').textContent=p.map(x=>`${x.family||''}/${x.shape||''}  ${x.tag}  -> ${x.assertion_fn||''}`).join('\\n')||'(none)');
 </script></body></html>"""
 
 class H(BaseHTTPRequestHandler):
