@@ -1,0 +1,51 @@
+# GemGarden -- PUBLIC engine repo. SHIP ENGINE MACHINERY ONLY.
+# Defense-in-depth: this repo is PUBLIC. Never commit databases, data, secrets,
+# or any owner/tenant content. The engine is generic; all content lives in the
+# DB and is seeded per-tenant on the target machine, never in version control.
+
+# Databases & generated (the DB is BUILT, never committed)
+*.db
+*.db-wal
+*.db-shm
+_data/
+_core/
+_local/
+*.manifest.json
+__pycache__/
+*.pyc
+node_modules/
+
+# Tenant / owner content -- NEVER commit (allow-list what ships; deny the rest here)
+_inbox/
+_records/
+_parked/
+_needs-review/
+_trash/
+tenant/
+private/
+
+# Secrets & machine-local config
+*.secret
+*.key
+.env
+*.local.json
+config.local.*
+
+# Personal media / source art (UI png/svg stay tracked)
+*.jpg
+*.jpeg
+*.heic
+*.psd
+*.ai
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.zip
+*.7z
+*.exe
+*.msi
+
+# OS / editor
+.DS_Store
+Thumbs.db
