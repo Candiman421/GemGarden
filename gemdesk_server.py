@@ -13,7 +13,7 @@ the VM has something LIVE; the full route/SDUI layer is a later port.
 import argparse, json, os, sqlite3, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
-import importlib.util, json as _json, re, threading
+import base64, importlib.util, json as _json, re, threading, xml.etree.ElementTree as ET, zipfile, io
 
 ENGINE_DB = None
 DOMAIN_DB = None
@@ -198,6 +198,128 @@ def r_analyze(payload):
         'pattern_hits': hits,
     }
 
+# ===================== EXEMPLARS =====================
+# A narrative case that justifies a pattern: starter -> steps -> completed + WHY.
+# Written to a SEPARATE db (--exemplar-db). The corpus DBs stay strictly read-only:
+# read-only over INGESTED truth, writable only over AUTHORED content. That distinction
+# is the invariant, not "the server never writes".
+EXEMPLAR_DB = None
+
+def _ex_db():
+    if not EXEMPLAR_DB:
+        return None
+    db = sqlite3.connect(EXEMPLAR_DB)
+    db.row_factory = sqlite3.Row
+    return db
+
+OOXML_TEXT = {  # zip member globs -> the XML tag whose text we want, per format
+    'word/document.xml':  '}t',
+    'ppt/slides/':        '}t',
+    'xl/sharedStrings.xml': '}t',
+}
+
+def extract_ooxml_text(data: bytes, filename: str = ''):
+    """docx / xlsx / pptx are zip+XML. Pull readable text with STDLIB ONLY -- no
+    python-docx, no openpyxl, nothing to install. Keeps the dependency-free constraint."""
+    out = []
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except Exception as e:
+        return f'(not an OOXML package: {e})'
+    for nm in z.namelist():
+        if not (nm.endswith('.xml') and (
+                nm == 'word/document.xml' or nm.startswith('ppt/slides/slide')
+                or nm == 'xl/sharedStrings.xml' or nm.startswith('xl/worksheets/sheet'))):
+            continue
+        try:
+            root = ET.fromstring(z.read(nm))
+        except Exception:
+            continue
+        chunk = [(el.text or '') for el in root.iter() if el.tag.endswith('}t') and el.text]
+        if chunk:
+            out.append(f'--- {nm} ---\n' + '\n'.join(chunk))
+    return '\n\n'.join(out) or '(no extractable text)'
+
+def r_exemplars():
+    db = _ex_db()
+    if not db: return []
+    return [dict(r) for r in db.execute("SELECT * FROM v_xf_exemplar_summary ORDER BY updated DESC")]
+
+def r_exemplar(qs):
+    db = _ex_db()
+    if not db: return {'error': 'no exemplar db'}
+    eid = (qs.get('id') or [''])[0]
+    e = db.execute("SELECT * FROM xf_exemplar WHERE exemplar_id=?", (eid,)).fetchone()
+    if not e: return {'error': 'not found'}
+    parts = db.execute("SELECT part_id,seq,kind,caption,mime,filename,text,sha256,bytes,created "
+                       "FROM xf_exemplar_part WHERE exemplar_id=? ORDER BY seq", (eid,)).fetchall()
+    return {'exemplar': dict(e), 'parts': [dict(p) for p in parts]}
+
+def r_exemplar_save(payload):
+    db = _ex_db()
+    if not db: return {'error': 'no exemplar db -- start the server with --exemplar-db'}
+    eid = (payload.get('exemplar_id') or re.sub(r'[^a-z0-9]+', '-',
+           (payload.get('name') or '').lower()).strip('-'))
+    if not eid: return {'error': 'name required'}
+    now = __import__('datetime').datetime.now().isoformat(timespec='seconds')
+    db.execute("INSERT INTO xf_exemplar(exemplar_id,name,pattern_name,program,task,app,era,"
+               "question,why,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
+               "ON CONFLICT(exemplar_id) DO UPDATE SET name=excluded.name,"
+               "pattern_name=excluded.pattern_name,program=excluded.program,task=excluded.task,"
+               "app=excluded.app,era=excluded.era,question=excluded.question,why=excluded.why,"
+               "status=excluded.status,updated=excluded.updated",
+               (eid, payload.get('name') or eid, payload.get('pattern_name'), payload.get('program'),
+                payload.get('task'), payload.get('app'), payload.get('era'), payload.get('question'),
+                payload.get('why'), payload.get('status') or 'draft', now, now))
+    db.commit()
+    return {'ok': True, 'exemplar_id': eid}
+
+def r_exemplar_part(payload):
+    db = _ex_db()
+    if not db: return {'error': 'no exemplar db'}
+    eid = payload.get('exemplar_id')
+    if not eid: return {'error': 'exemplar_id required'}
+    blob = None; text = payload.get('text') or ''
+    b64 = payload.get('data_b64')
+    if b64:
+        if ',' in b64[:64] and b64[:5] == 'data:':
+            b64 = b64.split(',', 1)[1]
+        blob = base64.b64decode(b64)
+        fn = (payload.get('filename') or '')
+        if fn.lower().endswith(('.docx', '.xlsx', '.pptx', '.dotx', '.potx', '.xltx')):
+            text = extract_ooxml_text(blob, fn)
+    seq = payload.get('seq')
+    if seq is None:
+        seq = (db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM xf_exemplar_part WHERE exemplar_id=?",
+                          (eid,)).fetchone()[0])
+    payload_bytes = blob if blob is not None else text.encode('utf-8')
+    db.execute("INSERT INTO xf_exemplar_part(exemplar_id,seq,kind,caption,mime,filename,text,blob,"
+               "sha256,bytes,created) VALUES(?,?,?,?,?,?,?,?,?,?,datetime('now'))",
+               (eid, seq, payload.get('kind') or 'note', payload.get('caption'),
+                payload.get('mime'), payload.get('filename'), text, blob,
+                hashlib_sha(payload_bytes), len(payload_bytes)))
+    db.execute("UPDATE xf_exemplar SET updated=datetime('now') WHERE exemplar_id=?", (eid,))
+    db.commit()
+    return {'ok': True, 'seq': seq, 'extracted_chars': len(text)}
+
+def r_exemplar_purge(payload):
+    db = _ex_db()
+    if not db: return {'error': 'no exemplar db'}
+    eid = payload.get('exemplar_id')
+    pid = payload.get('part_id')
+    if pid:
+        db.execute("DELETE FROM xf_exemplar_part WHERE part_id=?", (pid,)); db.commit()
+        return {'ok': True, 'deleted_part': pid}
+    if not eid: return {'error': 'exemplar_id or part_id required'}
+    db.execute("DELETE FROM xf_exemplar_part WHERE exemplar_id=?", (eid,))
+    db.execute("DELETE FROM xf_exemplar WHERE exemplar_id=?", (eid,))
+    db.commit()
+    return {'ok': True, 'purged': eid}
+
+def hashlib_sha(b):
+    import hashlib
+    return hashlib.sha256(b).hexdigest()
+
 def r_candidates_list():
     path = _cand_path()
     if not path or not os.path.exists(path):
@@ -233,7 +355,9 @@ def r_candidate_save(payload):
     return {'ok': True, 'saved': rec['name'], 'file': path}
 
 ROUTES = {"/api/health": lambda qs: r_health(),
-          "/api/pattern-candidates": lambda qs: r_candidates_list(), "/api/facets": lambda qs: r_facets(),
+          "/api/pattern-candidates": lambda qs: r_candidates_list(),
+          "/api/exemplars": lambda qs: r_exemplars(),
+          "/api/exemplar": lambda qs: r_exemplar(qs), "/api/facets": lambda qs: r_facets(),
           "/api/ship-class": lambda qs: r_ship_class(), "/api/functions": lambda qs: r_functions(),
           "/api/drift": lambda qs: r_drift(), "/api/files": lambda qs: r_files(),
           "/api/tasks": lambda qs: r_tasks(), "/api/patterns": lambda qs: r_patterns(),
@@ -283,6 +407,12 @@ class H(BaseHTTPRequestHandler):
                 body = json.dumps(r_analyze(payload), ensure_ascii=False).encode()
             elif u.path == '/api/pattern-candidates':
                 body = json.dumps(r_candidate_save(payload), ensure_ascii=False).encode()
+            elif u.path == '/api/exemplar':
+                body = json.dumps(r_exemplar_save(payload), ensure_ascii=False).encode()
+            elif u.path == '/api/exemplar/part':
+                body = json.dumps(r_exemplar_part(payload), ensure_ascii=False).encode()
+            elif u.path == '/api/exemplar/purge':
+                body = json.dumps(r_exemplar_purge(payload), ensure_ascii=False).encode()
             else:
                 self._send(b'{"error":"not found"}', code=404); return
         except Exception as e:
@@ -295,6 +425,12 @@ class H(BaseHTTPRequestHandler):
             uihtml = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gemdesk-ui.html")
             body = open(uihtml, "rb").read() if os.path.exists(uihtml) else DASH.encode()
             ctype = "text/html; charset=utf-8"
+        elif u.path == '/api/exemplar/blob':
+            db = _ex_db(); pid = (qs.get('part_id') or ['0'])[0]
+            row = db.execute("SELECT blob,mime FROM xf_exemplar_part WHERE part_id=?", (pid,)).fetchone() if db else None
+            if not row or row['blob'] is None:
+                self.send_response(404); self.end_headers(); self.wfile.write(b'no blob'); return
+            self._send(row['blob'], row['mime'] or 'application/octet-stream'); return
         elif u.path in ROUTES:
             try: body = json.dumps(ROUTES[u.path](qs), ensure_ascii=False).encode()
             except Exception as e: body = json.dumps({"error": repr(e)}).encode()
@@ -310,10 +446,20 @@ def main():
     ap.add_argument("--engine-db", default="_core/gemdesk.db")
     ap.add_argument("--domain-db", default="xf.db")
     ap.add_argument("--port", type=int, default=8770)  # 7433 is RESERVED (async port)
+    ap.add_argument("--exemplar-db", help="WRITABLE store for authored exemplars. VM-only, "
+                                          "gitignored. Corpus DBs stay read-only.")
+    ap.add_argument("--exemplar-schema", help="schema applied if the exemplar db is new")
     ap.add_argument("--patterns", help="path to the PRIVATE domain pattern module "
                                        "(e.g. parsers/xf_patterns.py). Engine works without it.")
     a = ap.parse_args()
-    global DOMAIN_PATTERNS
+    global DOMAIN_PATTERNS, EXEMPLAR_DB
+    if a.exemplar_db:
+        EXEMPLAR_DB = a.exemplar_db
+        _d = sqlite3.connect(EXEMPLAR_DB)
+        if not _d.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='xf_exemplar'").fetchone():
+            if a.exemplar_schema and os.path.exists(a.exemplar_schema):
+                _d.executescript(open(a.exemplar_schema, encoding="utf-8").read()); _d.commit()
+        _d.close()
     if a.patterns and os.path.exists(a.patterns):
         spec = importlib.util.spec_from_file_location("xf_patterns_domain", a.patterns)
         mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
@@ -321,7 +467,7 @@ def main():
     ENGINE_DB = a.engine_db if os.path.exists(a.engine_db) else None
     DOMAIN_DB = a.domain_db if os.path.exists(a.domain_db) else None
     print(f"GemDesk server on http://localhost:{a.port}/  engine={ENGINE_DB} domain={DOMAIN_DB} "
-          f"patterns={'loaded' if DOMAIN_PATTERNS else 'none (generic analysis only)'}")
+          f"patterns={'loaded' if DOMAIN_PATTERNS else 'none'} exemplars={EXEMPLAR_DB or 'off'}")
     ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()
 
 if __name__ == "__main__":

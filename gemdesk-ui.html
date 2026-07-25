@@ -292,6 +292,47 @@
         <div id="teach"></div>
       </div>
     </section>
+    <section id="t-exemplars" class="tab">
+      <div class="card">
+        <h3>Exemplars \u2014 the story behind a pattern</h3>
+        <p class="dim">A case that <b>justifies</b> a pattern: the starter asset, the beats a candidate
+          works through (pasted text or pasted screenshots), the completed asset \u2014 and your reasoning.
+          Stored in a <b>separate VM-only database</b>, gitignored, purgeable whole. Never leaves this machine.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+          <input id="x-name" placeholder="exemplar name" style="width:260px">
+          <input id="x-pattern" placeholder="pattern it justifies" style="width:220px">
+          <select id="x-app"><option value="">app\u2026</option><option>Excel</option><option>Word</option><option>PowerPoint</option></select>
+          <select id="x-era"><option value="">era\u2026</option><option>365</option><option>2019</option></select>
+          <input id="x-program" placeholder="program" style="width:130px">
+          <input id="x-task" placeholder="task" style="width:110px">
+        </div>
+        <textarea id="x-question" placeholder="the item question the candidate sees\u2026" style="width:100%;height:70px;margin-top:10px"></textarea>
+        <textarea id="x-why" placeholder="WHY this pattern exists \u2014 your reasoning. This is the point of the record." style="width:100%;height:90px;margin-top:8px"></textarea>
+        <div style="margin-top:10px"><button id="x-save">Save exemplar</button>
+          <span id="x-msg" class="dim" style="margin-left:10px"></span></div>
+      </div>
+
+      <div class="card">
+        <h4>Add a beat to the story</h4>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="x-kind"><option>question</option><option>starter</option><option>step</option>
+            <option>image</option><option>note</option><option>code</option><option>completed</option></select>
+          <input id="x-caption" placeholder="caption \u2014 what happens at this beat" style="width:420px">
+          <input type="file" id="x-file">
+          <button id="x-addtext">Add pasted text</button>
+        </div>
+        <textarea id="x-text" placeholder="paste text for this beat\u2026" style="width:100%;height:110px;margin-top:8px"></textarea>
+        <div id="x-drop" tabindex="0"
+             style="margin-top:10px;padding:26px;text-align:center;border:2px dashed #3a3a52;border-radius:8px;color:#8b8ba7">
+          click here, then <b>Ctrl+V</b> to paste a screenshot straight into the story
+        </div>
+        <div id="x-addmsg" class="dim" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card"><h4>Exemplars</h4><div id="x-list"></div></div>
+      <div class="card"><h4 id="x-storytitle">Story</h4><div id="x-story"></div></div>
+    </section>
+
     <section id="t-analyze" class="tab">
       <div class="card">
         <h3>Analyze a snippet \u2014 does this fit a named abstraction?</h3>
@@ -338,7 +379,7 @@
         '</tbody></table></div>';
     }
     // nav
-    const TABS = [['overview', 'Overview'], ['query', 'Query'], ['analyze', 'Analyze'], ['drift', 'Drift'], ['commands', 'Commands'], ['teach', 'Teach Copilot']];
+    const TABS = [['overview', 'Overview'], ['query', 'Query'], ['analyze', 'Analyze'], ['exemplars', 'Exemplars'], ['drift', 'Drift'], ['commands', 'Commands'], ['teach', 'Teach Copilot']];
     const nav = document.getElementById('nav');
     TABS.forEach(([id, label]) => {
       const b = document.createElement('button'); b.textContent = label; b.onclick = () => {
@@ -427,6 +468,86 @@
     document.getElementById('a-run').onclick = runAnalyze;
     document.getElementById('a-save').onclick = saveCandidate;
     loadCandidates();
+
+    // ---------- EXEMPLARS ----------
+    let XCUR = null;
+    const xv = (id) => document.getElementById(id).value;
+    const xPost = (url, body) => fetch(API + url, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+
+    async function xSave() {
+      const name = xv('x-name').trim();
+      if (!name) { document.getElementById('x-msg').innerHTML = '<span class=warn>name it first</span>'; return; }
+      const r = await xPost('/api/exemplar', {
+        exemplar_id: XCUR, name, pattern_name: xv('x-pattern'), app: xv('x-app'), era: xv('x-era'),
+        program: xv('x-program'), task: xv('x-task'), question: xv('x-question'), why: xv('x-why') });
+      document.getElementById('x-msg').innerHTML = r.error
+        ? `<span class=warn>${esc(r.error)}</span>` : `<span class=ok>saved \u2014 ${esc(r.exemplar_id)}</span>`;
+      if (r.exemplar_id) { XCUR = r.exemplar_id; xList(); xStory(); }
+    }
+    async function xAddPart(extra) {
+      if (!XCUR) { document.getElementById('x-addmsg').innerHTML = '<span class=warn>save the exemplar first</span>'; return; }
+      const r = await xPost('/api/exemplar/part', Object.assign(
+        { exemplar_id: XCUR, kind: xv('x-kind'), caption: xv('x-caption') }, extra));
+      document.getElementById('x-addmsg').innerHTML = r.error ? `<span class=warn>${esc(r.error)}</span>`
+        : `<span class=ok>beat ${r.seq} added${r.extracted_chars ? ' \u00b7 ' + r.extracted_chars + ' chars extracted' : ''}</span>`;
+      document.getElementById('x-text').value = ''; document.getElementById('x-caption').value = '';
+      xStory();
+    }
+    document.getElementById('x-save').onclick = xSave;
+    document.getElementById('x-addtext').onclick = () => xAddPart({ text: xv('x-text') });
+    document.getElementById('x-file').onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => xAddPart({ data_b64: rd.result, filename: f.name, mime: f.type });
+      rd.readAsDataURL(f); e.target.value = '';
+    };
+    // Ctrl+V a screenshot straight into the story -- "a series of image pastes, like a story".
+    document.getElementById('x-drop').addEventListener('paste', (e) => {
+      for (const it of ((e.clipboardData || {}).items || [])) {
+        if (it.type && it.type.startsWith('image/')) {
+          const rd = new FileReader();
+          rd.onload = () => xAddPart({ data_b64: rd.result, mime: it.type,
+                                       filename: 'paste.' + it.type.split('/')[1], kind: 'image' });
+          rd.readAsDataURL(it.getAsFile()); e.preventDefault(); return;
+        }
+      }
+    });
+    function xList() {
+      g('/api/exemplars').then(rows => {
+        const el = document.getElementById('x-list');
+        if (!rows || !rows.length || rows.error) { el.innerHTML = '<span class=dim>(none yet)</span>'; return; }
+        el.innerHTML = tbl(rows) + '<div style="margin-top:8px">' + rows.map(r =>
+          `<button onclick="xOpen('${esc(r.exemplar_id)}')">open ${esc(r.name)}</button>`).join(' ') + '</div>';
+      });
+    }
+    window.xOpen = async function (id) {
+      XCUR = id;
+      const d = await g('/api/exemplar?id=' + encodeURIComponent(id));
+      if (d.error) return;
+      const e = d.exemplar, map = { name: 'name', pattern: 'pattern_name', app: 'app', era: 'era',
+        program: 'program', task: 'task', question: 'question', why: 'why' };
+      Object.keys(map).forEach(k => document.getElementById('x-' + k).value = e[map[k]] || '');
+      xStory();
+    };
+    async function xStory() {
+      const el = document.getElementById('x-story');
+      if (!XCUR) { el.innerHTML = '<span class=dim>(open or save an exemplar)</span>'; return; }
+      const d = await g('/api/exemplar?id=' + encodeURIComponent(XCUR));
+      document.getElementById('x-storytitle').textContent = 'Story \u2014 ' + (d.exemplar ? d.exemplar.name : XCUR);
+      if (d.error || !d.parts || !d.parts.length) { el.innerHTML = '<span class=dim>(no beats yet)</span>'; return; }
+      el.innerHTML = d.parts.map(p => `
+        <div style="border-left:3px solid #3a3a52;padding:8px 12px;margin:10px 0">
+          <div><b>${p.seq}. ${esc(p.kind)}</b> <span class=dim>${esc(p.caption || '')}
+            ${p.filename ? '\u00b7 ' + esc(p.filename) : ''} \u00b7 ${p.bytes || 0}B</span>
+            <button style="float:right" onclick="xDelPart(${p.part_id})">delete</button></div>
+          ${p.mime && p.mime.indexOf('image/') === 0
+            ? `<img src="/api/exemplar/blob?part_id=${p.part_id}" style="max-width:100%;margin-top:8px;border-radius:6px">`
+            : (p.text ? `<pre style="white-space:pre-wrap;max-height:260px;overflow:auto">${esc(p.text.slice(0, 4000))}</pre>` : '')}
+        </div>`).join('');
+    }
+    window.xDelPart = async function (pid) { await xPost('/api/exemplar/purge', { part_id: pid }); xStory(); };
+    xList(); xStory();
     // drift
     g('/api/drift').then(d => {
       document.getElementById('drift-summary').innerHTML = d.error ? `<span class=warn>${d.error}</span>` :
