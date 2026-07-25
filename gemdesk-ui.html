@@ -232,6 +232,8 @@
     <section class="tab" id="t-query">
       <div class="card">
         <h3>Query wonderland</h3>
+        <span class="dim" style="float:right">rows/page
+          <select id="q-size"><option>50</option><option selected>100</option><option>250</option><option value="0">all</option></select></span>
         <div class="row"><label>view</label>
           <select id="q-view">
             <option>functions</option>
@@ -246,6 +248,7 @@
           <span id="q-count" class="dim"></span>
         </div>
         <div id="q-table"></div>
+        <div id="q-pager" style="margin-top:10px"></div>
       </div>
     </section>
 
@@ -289,18 +292,53 @@
         <div id="teach"></div>
       </div>
     </section>
+    <section id="t-analyze" class="tab">
+      <div class="card">
+        <h3>Analyze a snippet \u2014 does this fit a named abstraction?</h3>
+        <p class="dim">Paste real code. Every line is normalised to its structural shape and counted
+          against the whole corpus. <b>unique</b> = bespoke. <b>idiom</b> = it already IS a pattern and
+          deserves a name. Name it below and it becomes a promotion candidate for xf_patterns.py.</p>
+        <textarea id="a-text" spellcheck="false" placeholder="paste scoring / var / init code here\u2026"
+          style="width:100%;height:220px;font-family:ui-monospace,Consolas,monospace;font-size:13px;
+                 background:#0e0e16;color:#d6d6e6;border:1px solid #2a2a3a;border-radius:6px;padding:10px"></textarea>
+        <div style="margin:10px 0">
+          role <select id="a-role">
+            <option>scoring</option><option>var</option><option>init</option>
+            <option>lib</option><option>content</option><option>template</option></select>
+          <button id="a-run">Analyze</button>
+        </div>
+        <div id="a-out"></div>
+        <hr style="border:0;border-top:1px solid #2a2a3a;margin:18px 0">
+        <h4>Name this abstraction</h4>
+        <p class="dim">You are the authority on what it means. Naming it here records the exemplar so a
+          deterministic detector can be written from real data instead of from memory.</p>
+        <input id="a-name" placeholder="pattern name, e.g. nested-loop-exitbool"
+               style="width:340px;padding:6px;background:#0e0e16;color:#d6d6e6;border:1px solid #2a2a3a;border-radius:6px">
+        <input id="a-note" placeholder="what it means / when to use it"
+               style="width:46%;padding:6px;background:#0e0e16;color:#d6d6e6;border:1px solid #2a2a3a;border-radius:6px">
+        <button id="a-save">Save candidate</button>
+        <div id="a-saved" style="margin-top:8px"></div>
+        <h4 style="margin-top:18px">Saved candidates</h4>
+        <div id="a-cands"></div>
+      </div>
+    </section>
   </main>
   <script>
     const API = ''; // same origin (served by gemdesk_server)
     const g = (u) => fetch(API + u).then(r => r.json()).catch(() => ({ error: 'offline — start gemdesk_server.py' }));
     function cp(id) { const t = document.getElementById(id).querySelector('span') || document.getElementById(id); navigator.clipboard.writeText(t.innerText || t.textContent); }
+    const esc = (v) => String(v ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    // Scroll container + sticky header: 225+ rows were previously dumped unpaged and unscrollable.
     function tbl(rows) {
       if (!rows || !rows.length) return '<span class=dim>(none)</span>'; const cols = Object.keys(rows[0]);
-      return '<table><thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' +
-        rows.map(r => '<tr>' + cols.map(c => `<td>${(r[c] ?? '')}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
+      return '<div style="max-height:62vh;overflow:auto;border:1px solid #2a2a3a;border-radius:6px">' +
+        '<table><thead style="position:sticky;top:0;background:#15151f;z-index:1"><tr>' +
+        cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead><tbody>' +
+        rows.map(r => '<tr>' + cols.map(c => `<td>${esc(r[c])}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table></div>';
     }
     // nav
-    const TABS = [['overview', 'Overview'], ['query', 'Query'], ['drift', 'Drift'], ['commands', 'Commands'], ['teach', 'Teach Copilot']];
+    const TABS = [['overview', 'Overview'], ['query', 'Query'], ['analyze', 'Analyze'], ['drift', 'Drift'], ['commands', 'Commands'], ['teach', 'Teach Copilot']];
     const nav = document.getElementById('nav');
     TABS.forEach(([id, label]) => {
       const b = document.createElement('button'); b.textContent = label; b.onclick = () => {
@@ -321,12 +359,74 @@
       const v = document.getElementById('q-view').value; const map = { 'functions': '/api/functions', 'tasks': '/api/tasks', 'patterns': '/api/patterns', 'files': '/api/files', 'facets': '/api/facets', 'ship-class': '/api/ship-class', 'collections': '/api/collections' };
       QCACHE[v] = QCACHE[v] || await g(map[v]); renderQ();
     }
+    let QPAGE = 0, QSIZE = 100;
     function renderQ() {
       const v = document.getElementById('q-view').value; const f = document.getElementById('q-filter').value.toLowerCase();
       let rows = QCACHE[v] || []; if (f) rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(f));
-      document.getElementById('q-count').textContent = rows.length + ' rows'; document.getElementById('q-table').innerHTML = tbl(rows);
+      const total = rows.length, pages = QSIZE ? Math.max(1, Math.ceil(total / QSIZE)) : 1;
+      if (QPAGE >= pages) QPAGE = pages - 1; if (QPAGE < 0) QPAGE = 0;
+      const view = QSIZE ? rows.slice(QPAGE * QSIZE, QPAGE * QSIZE + QSIZE) : rows;
+      document.getElementById('q-count').textContent =
+        total ? `${QPAGE * QSIZE + 1}\u2013${QPAGE * QSIZE + view.length} of ${total}` : '0 rows';
+      document.getElementById('q-table').innerHTML = tbl(view);
+      const pg = document.getElementById('q-pager');
+      if (pg) pg.innerHTML = QSIZE
+        ? `<button ${QPAGE === 0 ? 'disabled' : ''} onclick="QPAGE--;renderQ()">\u2039 prev</button>
+           <span class=dim style="padding:0 10px">page ${QPAGE + 1} / ${pages}</span>
+           <button ${QPAGE >= pages - 1 ? 'disabled' : ''} onclick="QPAGE++;renderQ()">next \u203a</button>` : '';
     }
-    document.getElementById('q-view').onchange = loadQ; document.getElementById('q-filter').oninput = renderQ; loadQ();
+    document.getElementById('q-view').onchange = () => { QPAGE = 0; loadQ(); };
+    document.getElementById('q-filter').oninput = () => { QPAGE = 0; renderQ(); };
+    document.getElementById('q-size').onchange = (e) => { QSIZE = +e.target.value; QPAGE = 0; renderQ(); };
+    loadQ();
+
+    // ---------- ANALYZE: "does this fit a named abstraction?" ----------
+    // Answered with EVIDENCE: every line is normalised to its structural shape and counted
+    // against the whole corpus. unique = bespoke. idiom = it already IS a pattern, name it.
+    let LASTA = null;
+    async function runAnalyze() {
+      const text = document.getElementById('a-text').value;
+      const role = document.getElementById('a-role').value;
+      const out = document.getElementById('a-out');
+      if (!text.trim()) { out.innerHTML = '<span class=dim>paste some code first</span>'; return; }
+      out.innerHTML = '<span class=dim>analysing\u2026</span>';
+      const r = await fetch(API + '/api/analyze', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, role })
+      }).then(x => x.json()).catch(e => ({ error: String(e) }));
+      LASTA = r;
+      if (r.error) { out.innerHTML = `<span class=warn>${esc(r.error)}</span>`; return; }
+      const tally = { idiom: 0, common: 0, rare: 0, unique: 0 };
+      (r.lines || []).forEach(l => tally[l.verdict]++);
+      out.innerHTML =
+        `<p class=dim>${r.corpus_lines_indexed} corpus lines indexed \u00b7 domain patterns
+          <b>${r.domain_patterns_loaded ? 'loaded' : 'NOT loaded (generic analysis only)'}</b></p>
+         <p><b>${tally.idiom}</b> idiom \u00b7 <b>${tally.common}</b> common \u00b7
+            <b>${tally.rare}</b> rare \u00b7 <b class=warn>${tally.unique}</b> unique-to-this-snippet</p>
+         <h4>Line shapes vs corpus</h4>${tbl(r.lines)}
+         <h4>Frequent shapes NO named pattern covers \u2014 naming candidates</h4>${tbl(r.unnamed_idioms)}
+         <h4>Named pattern hits</h4>${tbl(r.pattern_hits)}
+         <h4>Identifier segments</h4>${tbl(r.identifier_segments)}`;
+    }
+    async function saveCandidate() {
+      const name = document.getElementById('a-name').value.trim();
+      const note = document.getElementById('a-note').value.trim();
+      const msg = document.getElementById('a-saved');
+      if (!name) { msg.innerHTML = '<span class=warn>name it first</span>'; return; }
+      const shape = (LASTA && LASTA.unnamed_idioms && LASTA.unnamed_idioms[0]) ? LASTA.unnamed_idioms[0].shape : '';
+      const r = await fetch(API + '/api/pattern-candidates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, note, shape, role: document.getElementById('a-role').value,
+                               sample: document.getElementById('a-text').value })
+      }).then(x => x.json());
+      msg.innerHTML = r.error ? `<span class=warn>${esc(r.error)}</span>`
+                              : `<span class=ok>saved \u201c${esc(r.saved)}\u201d \u2192 promote it into xf_patterns.py</span>`;
+      loadCandidates();
+    }
+    function loadCandidates() { g('/api/pattern-candidates').then(c => document.getElementById('a-cands').innerHTML = tbl(c)); }
+    document.getElementById('a-run').onclick = runAnalyze;
+    document.getElementById('a-save').onclick = saveCandidate;
+    loadCandidates();
     // drift
     g('/api/drift').then(d => {
       document.getElementById('drift-summary').innerHTML = d.error ? `<span class=warn>${d.error}</span>` :

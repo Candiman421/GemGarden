@@ -13,6 +13,7 @@ the VM has something LIVE; the full route/SDUI layer is a later port.
 import argparse, json, os, sqlite3, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+import importlib.util, json as _json, re, threading
 
 ENGINE_DB = None
 DOMAIN_DB = None
@@ -101,7 +102,138 @@ def r_runs():
     if not dd or not _has_table(dd, "xf_collection_run"): return []
     o = _rows(dd, "SELECT collection_id, ran_at, files, tasks, functions, drift_count FROM xf_collection_run ORDER BY run_id DESC LIMIT 100"); dd.close(); return o
 
-ROUTES = {"/api/health": lambda qs: r_health(), "/api/facets": lambda qs: r_facets(),
+# ===================== ABSTRACTION RECOGNITION =====================
+# "I am looking at this snippet -- does it fit a NAMED abstraction?"
+# The engine answers with EVIDENCE, not opinion: normalise the snippet to its structural
+# shape, then count how often that exact shape occurs across the whole corpus. Unique
+# means bespoke; frequent means it IS an idiom and deserves a name.
+#
+# Everything here is LANGUAGE knowledge (VB/VBScript), never TENANT knowledge, so it is
+# legitimately public. Domain patterns live in the PRIVATE pack and are injected via
+# --patterns (ADR boundary: the public engine stays content-agnostic).
+DOMAIN_PATTERNS = None          # set by main() from --patterns
+_SHAPE_INDEX = None             # lazily built {shape: count}
+_SHAPE_LOCK = threading.Lock()
+
+_STR = re.compile(r'"[^"]*"')
+_NUM = re.compile(r'\b\d+(\.\d+)?\b')
+_IDN = re.compile(r'\b[A-Za-z_]\w*\b')
+_KW = {'if','then','else','elseif','end','for','each','next','do','loop','while','wend','select',
+       'case','sub','function','dim','set','let','and','or','not','is','nothing','true','false',
+       'to','step','exit','call','with','on','error','resume','goto','as','byval','byref',
+       'optional','const','public','private','redim','preserve','in','mod'}
+
+def shape_of(line):
+    t = _STR.sub('S', line)
+    t = _NUM.sub('N', t)
+    t = _IDN.sub(lambda m: m.group(0) if m.group(0).lower() in _KW else 'I', t)
+    return re.sub(r'\s+', ' ', t).strip()
+
+def _segments(name):
+    out = []
+    for p in re.split(r'[_\W]+', name):
+        out += [t for t in re.findall(r'[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+|\d+', p) if t]
+    return [t.lower() for t in out]
+
+def shape_index():
+    """Build once per process: every code line in the corpus -> its shape -> count.
+    Rebuild = restart the server, which every ingest already does."""
+    global _SHAPE_INDEX
+    with _SHAPE_LOCK:
+        if _SHAPE_INDEX is not None:
+            return _SHAPE_INDEX
+        idx = {}
+        db = _ro(DOMAIN_DB)
+        if db:
+            for (txt,) in db.execute("SELECT raw_text FROM xf_segment"):
+                c = (txt or '').strip()
+                if c and not c.startswith("'"):
+                    sh = shape_of(c)
+                    idx[sh] = idx.get(sh, 0) + 1
+        _SHAPE_INDEX = idx
+        return idx
+
+def r_analyze(payload):
+    """POST {text, role} -> per-line shape + corpus frequency + verdict + domain hits."""
+    text = payload.get('text') or ''
+    role = payload.get('role') or 'scoring'
+    idx = shape_index()
+    corpus_lines = sum(idx.values()) or 1
+    seen, lines = {}, []
+    for i, raw in enumerate(text.splitlines(), 1):
+        code = raw.strip()
+        if not code or code.startswith("'"):
+            continue
+        sh = shape_of(code)
+        n = idx.get(sh, 0)
+        seen[sh] = seen.get(sh, 0) + 1
+        lines.append({'line': i, 'shape': sh, 'corpus_count': n,
+                      'verdict': 'idiom' if n >= 25 else 'common' if n >= 5
+                                 else 'rare' if n > 0 else 'unique'})
+    idents = {}
+    for nm in set(_IDN.findall(text)):
+        if nm.lower() in _KW or len(nm) < 3:
+            continue
+        for seg in _segments(nm):
+            idents[seg] = idents.get(seg, 0) + 1
+    hits = []
+    if DOMAIN_PATTERNS is not None:
+        try:
+            hits = DOMAIN_PATTERNS.scan_text(text, role)
+        except Exception as e:
+            hits = [{'pattern': '(engine)', 'line': 0, 'note': f'domain pattern error: {e!r}'}]
+    covered = {h.get('line') for h in hits}
+    return {
+        'role': role,
+        'corpus_lines_indexed': corpus_lines,
+        'domain_patterns_loaded': DOMAIN_PATTERNS is not None,
+        'lines': lines,
+        'distinct_shapes': len(seen),
+        'unnamed_idioms': sorted(
+            [{'shape': sh, 'in_snippet': c, 'in_corpus': idx.get(sh, 0)}
+             for sh, c in seen.items() if idx.get(sh, 0) >= 25 and not covered],
+            key=lambda d: -d['in_corpus'])[:25],
+        'identifier_segments': sorted(
+            [{'seg': k, 'n': v} for k, v in idents.items()], key=lambda d: -d['n'])[:30],
+        'pattern_hits': hits,
+    }
+
+def r_candidates_list():
+    path = _cand_path()
+    if not path or not os.path.exists(path):
+        return []
+    out = []
+    with open(path, encoding='utf-8') as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if ln:
+                try: out.append(_json.loads(ln))
+                except Exception: pass
+    return out[::-1]
+
+def _cand_path():
+    """Append-only sidecar beside the domain DB. The server stays READ-ONLY against
+    SQLite by design (ANN20260724-022); naming a candidate must not break that."""
+    return (os.path.splitext(DOMAIN_DB)[0] + '-pattern-candidates.jsonl') if DOMAIN_DB else None
+
+def r_candidate_save(payload):
+    path = _cand_path()
+    if not path:
+        return {'error': 'no domain db'}
+    rec = {'name': (payload.get('name') or '').strip(),
+           'role': payload.get('role') or 'scoring',
+           'shape': payload.get('shape') or '',
+           'note': payload.get('note') or '',
+           'sample': (payload.get('sample') or '')[:4000],
+           'saved': __import__('datetime').datetime.now().isoformat(timespec='seconds')}
+    if not rec['name']:
+        return {'error': 'name required'}
+    with open(path, 'a', encoding='utf-8') as fh:
+        fh.write(_json.dumps(rec, ensure_ascii=False) + '\n')
+    return {'ok': True, 'saved': rec['name'], 'file': path}
+
+ROUTES = {"/api/health": lambda qs: r_health(),
+          "/api/pattern-candidates": lambda qs: r_candidates_list(), "/api/facets": lambda qs: r_facets(),
           "/api/ship-class": lambda qs: r_ship_class(), "/api/functions": lambda qs: r_functions(),
           "/api/drift": lambda qs: r_drift(), "/api/files": lambda qs: r_files(),
           "/api/tasks": lambda qs: r_tasks(), "/api/patterns": lambda qs: r_patterns(),
@@ -135,6 +267,28 @@ g('/api/patterns').then(p=>document.getElementById('patterns').textContent=p.map
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+    def _send(self, body, ctype="application/json; charset=utf-8", code=200):
+        self.send_response(code); self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+            payload = json.loads(self.rfile.read(n) or b'{}')
+        except Exception as e:
+            self._send(json.dumps({'error': f'bad json: {e}'}).encode(), code=400); return
+        try:
+            if u.path == '/api/analyze':
+                body = json.dumps(r_analyze(payload), ensure_ascii=False).encode()
+            elif u.path == '/api/pattern-candidates':
+                body = json.dumps(r_candidate_save(payload), ensure_ascii=False).encode()
+            else:
+                self._send(b'{"error":"not found"}', code=404); return
+        except Exception as e:
+            body = json.dumps({'error': repr(e)}).encode()
+        self._send(body)
+
     def do_GET(self):
         u = urlparse(self.path); qs = parse_qs(u.query)
         if u.path in ("/", "/index.html"):
@@ -156,10 +310,18 @@ def main():
     ap.add_argument("--engine-db", default="_core/gemdesk.db")
     ap.add_argument("--domain-db", default="xf.db")
     ap.add_argument("--port", type=int, default=8770)  # 7433 is RESERVED (async port)
+    ap.add_argument("--patterns", help="path to the PRIVATE domain pattern module "
+                                       "(e.g. parsers/xf_patterns.py). Engine works without it.")
     a = ap.parse_args()
+    global DOMAIN_PATTERNS
+    if a.patterns and os.path.exists(a.patterns):
+        spec = importlib.util.spec_from_file_location("xf_patterns_domain", a.patterns)
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        DOMAIN_PATTERNS = mod
     ENGINE_DB = a.engine_db if os.path.exists(a.engine_db) else None
     DOMAIN_DB = a.domain_db if os.path.exists(a.domain_db) else None
-    print(f"GemDesk server on http://localhost:{a.port}/  engine={ENGINE_DB} domain={DOMAIN_DB}")
+    print(f"GemDesk server on http://localhost:{a.port}/  engine={ENGINE_DB} domain={DOMAIN_DB} "
+          f"patterns={'loaded' if DOMAIN_PATTERNS else 'none (generic analysis only)'}")
     ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()
 
 if __name__ == "__main__":
