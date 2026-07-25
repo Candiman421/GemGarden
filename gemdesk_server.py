@@ -7,8 +7,8 @@ functions, drift) over small JSON routes, plus a one-page dashboard. READ-ONLY: 
 opened mode=ro, and only SELECT-backed routes exist. This is the walking-skeleton server so
 the VM has something LIVE; the full route/SDUI layer is a later port.
 
-  python gemdesk_server.py --engine-db _core/gemdesk.db --domain-db xf.db --port 7433
-  then open http://localhost:7433/
+  python gemdesk_server.py --engine-db _core/gemdesk.db --domain-db xf.db --port 8770
+  then open http://localhost:8770/
 """
 import argparse, json, os, sqlite3, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -155,7 +155,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine-db", default="_core/gemdesk.db")
     ap.add_argument("--domain-db", default="xf.db")
-    ap.add_argument("--port", type=int, default=7433)
+    ap.add_argument("--port", type=int, default=8770)  # 7433 is RESERVED (async port)
     a = ap.parse_args()
     ENGINE_DB = a.engine_db if os.path.exists(a.engine_db) else None
     DOMAIN_DB = a.domain_db if os.path.exists(a.domain_db) else None

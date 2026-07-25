@@ -46,7 +46,7 @@ C:\Repos\MosBurger\
    `python parsers\gen_copilot_context.py --engine-db ..\..\GemGarden\_core\gemdesk.db --domain-db xf.db --out .github\copilot-instructions.md --also-cursor --also-claude`
 6. Serve + view:
    `python ..\..\GemGarden\gemdesk_server.py --engine-db ..\..\GemGarden\_core\gemdesk.db --domain-db xf.db`
-   → open http://localhost:7433/  (Tasks + Scoring patterns cards populate).
+   → open http://localhost:8770/  (Tasks + Scoring patterns cards populate).
 
 ## How the user talks to you (Copilot) to work the system
 The user drives you in plain language, like: "ingest the FinanceRoot collection", "show me which functions
