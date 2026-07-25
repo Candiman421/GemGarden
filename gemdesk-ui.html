@@ -293,21 +293,29 @@
       </div>
     </section>
     <section id="t-exemplars" class="tab">
+      <style>
+        #t-exemplars input, #t-exemplars textarea, #t-exemplars select {
+          background:#0e0e16; color:#d6d6e6; border:1px solid #2a2a3a;
+          border-radius:6px; padding:7px; font-family:inherit; font-size:13px;
+        }
+        #t-exemplars textarea { font-family:ui-monospace,Consolas,monospace; }
+        #t-exemplars input::placeholder, #t-exemplars textarea::placeholder { color:#6f6f8a; }
+      </style>
       <div class="card">
-        <h3>Exemplars \u2014 the story behind a pattern</h3>
+        <h3>Exemplars — the story behind a pattern</h3>
         <p class="dim">A case that <b>justifies</b> a pattern: the starter asset, the beats a candidate
-          works through (pasted text or pasted screenshots), the completed asset \u2014 and your reasoning.
+          works through (pasted text or pasted screenshots), the completed asset — and your reasoning.
           Stored in a <b>separate VM-only database</b>, gitignored, purgeable whole. Never leaves this machine.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
           <input id="x-name" placeholder="exemplar name" style="width:260px">
           <input id="x-pattern" placeholder="pattern it justifies" style="width:220px">
-          <select id="x-app"><option value="">app\u2026</option><option>Excel</option><option>Word</option><option>PowerPoint</option></select>
-          <select id="x-era"><option value="">era\u2026</option><option>365</option><option>2019</option></select>
+          <select id="x-app"><option value="">app…</option><option>Excel</option><option>Word</option><option>PowerPoint</option></select>
+          <select id="x-era"><option value="">era…</option><option>365</option><option>2019</option></select>
           <input id="x-program" placeholder="program" style="width:130px">
           <input id="x-task" placeholder="task" style="width:110px">
         </div>
-        <textarea id="x-question" placeholder="the item question the candidate sees\u2026" style="width:100%;height:70px;margin-top:10px"></textarea>
-        <textarea id="x-why" placeholder="WHY this pattern exists \u2014 your reasoning. This is the point of the record." style="width:100%;height:90px;margin-top:8px"></textarea>
+        <textarea id="x-question" placeholder="the item question the candidate sees…" style="width:100%;height:70px;margin-top:10px"></textarea>
+        <textarea id="x-why" placeholder="WHY this pattern exists — your reasoning. This is the point of the record." style="width:100%;height:90px;margin-top:8px"></textarea>
         <div style="margin-top:10px"><button id="x-save">Save exemplar</button>
           <span id="x-msg" class="dim" style="margin-left:10px"></span></div>
       </div>
@@ -317,11 +325,11 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <select id="x-kind"><option>question</option><option>starter</option><option>step</option>
             <option>image</option><option>note</option><option>code</option><option>completed</option></select>
-          <input id="x-caption" placeholder="caption \u2014 what happens at this beat" style="width:420px">
+          <input id="x-caption" placeholder="caption — what happens at this beat" style="width:420px">
           <input type="file" id="x-file">
           <button id="x-addtext">Add pasted text</button>
         </div>
-        <textarea id="x-text" placeholder="paste text for this beat\u2026" style="width:100%;height:110px;margin-top:8px"></textarea>
+        <textarea id="x-text" placeholder="paste text for this beat…" style="width:100%;height:110px;margin-top:8px"></textarea>
         <div id="x-drop" tabindex="0"
              style="margin-top:10px;padding:26px;text-align:center;border:2px dashed #3a3a52;border-radius:8px;color:#8b8ba7">
           click here, then <b>Ctrl+V</b> to paste a screenshot straight into the story
@@ -335,11 +343,11 @@
 
     <section id="t-analyze" class="tab">
       <div class="card">
-        <h3>Analyze a snippet \u2014 does this fit a named abstraction?</h3>
+        <h3>Analyze a snippet — does this fit a named abstraction?</h3>
         <p class="dim">Paste real code. Every line is normalised to its structural shape and counted
           against the whole corpus. <b>unique</b> = bespoke. <b>idiom</b> = it already IS a pattern and
           deserves a name. Name it below and it becomes a promotion candidate for xf_patterns.py.</p>
-        <textarea id="a-text" spellcheck="false" placeholder="paste scoring / var / init code here\u2026"
+        <textarea id="a-text" spellcheck="false" placeholder="paste scoring / var / init code here…"
           style="width:100%;height:220px;font-family:ui-monospace,Consolas,monospace;font-size:13px;
                  background:#0e0e16;color:#d6d6e6;border:1px solid #2a2a3a;border-radius:6px;padding:10px"></textarea>
         <div style="margin:10px 0">
@@ -408,13 +416,13 @@
       if (QPAGE >= pages) QPAGE = pages - 1; if (QPAGE < 0) QPAGE = 0;
       const view = QSIZE ? rows.slice(QPAGE * QSIZE, QPAGE * QSIZE + QSIZE) : rows;
       document.getElementById('q-count').textContent =
-        total ? `${QPAGE * QSIZE + 1}\u2013${QPAGE * QSIZE + view.length} of ${total}` : '0 rows';
+        total ? `${QPAGE * QSIZE + 1}–${QPAGE * QSIZE + view.length} of ${total}` : '0 rows';
       document.getElementById('q-table').innerHTML = tbl(view);
       const pg = document.getElementById('q-pager');
       if (pg) pg.innerHTML = QSIZE
-        ? `<button ${QPAGE === 0 ? 'disabled' : ''} onclick="QPAGE--;renderQ()">\u2039 prev</button>
+        ? `<button ${QPAGE === 0 ? 'disabled' : ''} onclick="QPAGE--;renderQ()">‹ prev</button>
            <span class=dim style="padding:0 10px">page ${QPAGE + 1} / ${pages}</span>
-           <button ${QPAGE >= pages - 1 ? 'disabled' : ''} onclick="QPAGE++;renderQ()">next \u203a</button>` : '';
+           <button ${QPAGE >= pages - 1 ? 'disabled' : ''} onclick="QPAGE++;renderQ()">next ›</button>` : '';
     }
     document.getElementById('q-view').onchange = () => { QPAGE = 0; loadQ(); };
     document.getElementById('q-filter').oninput = () => { QPAGE = 0; renderQ(); };
@@ -430,7 +438,7 @@
       const role = document.getElementById('a-role').value;
       const out = document.getElementById('a-out');
       if (!text.trim()) { out.innerHTML = '<span class=dim>paste some code first</span>'; return; }
-      out.innerHTML = '<span class=dim>analysing\u2026</span>';
+      out.innerHTML = '<span class=dim>analysing…</span>';
       const r = await fetch(API + '/api/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, role })
@@ -440,12 +448,12 @@
       const tally = { idiom: 0, common: 0, rare: 0, unique: 0 };
       (r.lines || []).forEach(l => tally[l.verdict]++);
       out.innerHTML =
-        `<p class=dim>${r.corpus_lines_indexed} corpus lines indexed \u00b7 domain patterns
+        `<p class=dim>${r.corpus_lines_indexed} corpus lines indexed · domain patterns
           <b>${r.domain_patterns_loaded ? 'loaded' : 'NOT loaded (generic analysis only)'}</b></p>
-         <p><b>${tally.idiom}</b> idiom \u00b7 <b>${tally.common}</b> common \u00b7
-            <b>${tally.rare}</b> rare \u00b7 <b class=warn>${tally.unique}</b> unique-to-this-snippet</p>
+         <p><b>${tally.idiom}</b> idiom · <b>${tally.common}</b> common ·
+            <b>${tally.rare}</b> rare · <b class=warn>${tally.unique}</b> unique-to-this-snippet</p>
          <h4>Line shapes vs corpus</h4>${tbl(r.lines)}
-         <h4>Frequent shapes NO named pattern covers \u2014 naming candidates</h4>${tbl(r.unnamed_idioms)}
+         <h4>Frequent shapes NO named pattern covers — naming candidates</h4>${tbl(r.unnamed_idioms)}
          <h4>Named pattern hits</h4>${tbl(r.pattern_hits)}
          <h4>Identifier segments</h4>${tbl(r.identifier_segments)}`;
     }
@@ -461,7 +469,7 @@
                                sample: document.getElementById('a-text').value })
       }).then(x => x.json());
       msg.innerHTML = r.error ? `<span class=warn>${esc(r.error)}</span>`
-                              : `<span class=ok>saved \u201c${esc(r.saved)}\u201d \u2192 promote it into xf_patterns.py</span>`;
+                              : `<span class=ok>saved “${esc(r.saved)}” → promote it into xf_patterns.py</span>`;
       loadCandidates();
     }
     function loadCandidates() { g('/api/pattern-candidates').then(c => document.getElementById('a-cands').innerHTML = tbl(c)); }
@@ -482,7 +490,7 @@
         exemplar_id: XCUR, name, pattern_name: xv('x-pattern'), app: xv('x-app'), era: xv('x-era'),
         program: xv('x-program'), task: xv('x-task'), question: xv('x-question'), why: xv('x-why') });
       document.getElementById('x-msg').innerHTML = r.error
-        ? `<span class=warn>${esc(r.error)}</span>` : `<span class=ok>saved \u2014 ${esc(r.exemplar_id)}</span>`;
+        ? `<span class=warn>${esc(r.error)}</span>` : `<span class=ok>saved — ${esc(r.exemplar_id)}</span>`;
       if (r.exemplar_id) { XCUR = r.exemplar_id; xList(); xStory(); }
     }
     async function xAddPart(extra) {
@@ -490,7 +498,7 @@
       const r = await xPost('/api/exemplar/part', Object.assign(
         { exemplar_id: XCUR, kind: xv('x-kind'), caption: xv('x-caption') }, extra));
       document.getElementById('x-addmsg').innerHTML = r.error ? `<span class=warn>${esc(r.error)}</span>`
-        : `<span class=ok>beat ${r.seq} added${r.extracted_chars ? ' \u00b7 ' + r.extracted_chars + ' chars extracted' : ''}</span>`;
+        : `<span class=ok>beat ${r.seq} added${r.extracted_chars ? ' · ' + r.extracted_chars + ' chars extracted' : ''}</span>`;
       document.getElementById('x-text').value = ''; document.getElementById('x-caption').value = '';
       xStory();
     }
@@ -534,12 +542,12 @@
       const el = document.getElementById('x-story');
       if (!XCUR) { el.innerHTML = '<span class=dim>(open or save an exemplar)</span>'; return; }
       const d = await g('/api/exemplar?id=' + encodeURIComponent(XCUR));
-      document.getElementById('x-storytitle').textContent = 'Story \u2014 ' + (d.exemplar ? d.exemplar.name : XCUR);
+      document.getElementById('x-storytitle').textContent = 'Story — ' + (d.exemplar ? d.exemplar.name : XCUR);
       if (d.error || !d.parts || !d.parts.length) { el.innerHTML = '<span class=dim>(no beats yet)</span>'; return; }
       el.innerHTML = d.parts.map(p => `
         <div style="border-left:3px solid #3a3a52;padding:8px 12px;margin:10px 0">
           <div><b>${p.seq}. ${esc(p.kind)}</b> <span class=dim>${esc(p.caption || '')}
-            ${p.filename ? '\u00b7 ' + esc(p.filename) : ''} \u00b7 ${p.bytes || 0}B</span>
+            ${p.filename ? '· ' + esc(p.filename) : ''} · ${p.bytes || 0}B</span>
             <button style="float:right" onclick="xDelPart(${p.part_id})">delete</button></div>
           ${p.mime && p.mime.indexOf('image/') === 0
             ? `<img src="/api/exemplar/blob?part_id=${p.part_id}" style="max-width:100%;margin-top:8px;border-radius:6px">`
